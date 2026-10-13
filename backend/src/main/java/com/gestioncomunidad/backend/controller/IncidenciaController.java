@@ -13,6 +13,8 @@ import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.Authentication;
 import org.springframework.web.bind.annotation.*;
 
+import java.util.List;
+
 @RestController
 @RequestMapping("/api/incidencias")
 public class IncidenciaController {
@@ -34,19 +36,28 @@ public class IncidenciaController {
             Authentication authentication) {
 
         Integer usuarioId = usuarioRepository
-            .findByEmail(authentication.getName())
-            .orElseThrow(() ->
-                new OperacionNoPermitidaException(
-                    "La cuenta de la sesión ya no está disponible"
-                )
-            )
-            .getId();
+                .findByEmail(authentication.getName())
+                .orElseThrow(() -> new OperacionNoPermitidaException(
+                        "La cuenta de la sesión ya no está disponible"))
+                .getId();
 
-        IncidenciaResponse respuesta =
-            incidenciaService.crear(request, usuarioId);
+        IncidenciaResponse respuesta = incidenciaService.crear(request, usuarioId);
 
         return ResponseEntity
-            .status(HttpStatus.CREATED)
-            .body(respuesta);
+                .status(HttpStatus.CREATED)
+                .body(respuesta);
+    }
+
+    @GetMapping
+    public List<IncidenciaResponse> listarMisIncidencias(
+            Authentication authentication) {
+
+        Integer usuarioId = usuarioRepository
+                .findByEmail(authentication.getName())
+                .orElseThrow(() -> new OperacionNoPermitidaException(
+                        "La cuenta de la sesión ya no está disponible"))
+                .getId();
+
+        return incidenciaService.listarMisIncidencias(usuarioId);
     }
 }

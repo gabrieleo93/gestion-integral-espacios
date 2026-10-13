@@ -21,10 +21,12 @@ import com.gestioncomunidad.backend.repositories.UsuarioRepository;
 import jakarta.persistence.EntityManager;
 import jakarta.transaction.Transactional;
 
-@Service 
+import java.util.List;
+
+@Service
 public class IncidenciaService {
 
-     private final UsuarioRepository usuarioRepository;
+    private final UsuarioRepository usuarioRepository;
     private final EspacioRepository espacioRepository;
     private final UsuarioComunidadRepository usuarioComunidadRepository;
     private final IncidenciaRepository incidenciaRepository;
@@ -32,13 +34,12 @@ public class IncidenciaService {
     private final EntityManager entityManager;
 
     public IncidenciaService(
-        UsuarioRepository usuarioRepository,
-        EspacioRepository espacioRepository,
-        UsuarioComunidadRepository usuarioComunidadRepository,
-        IncidenciaRepository incidenciaRepository,
-        HistorialIncidenciaRepository historialRepository,
-        EntityManager entityManager
-    ) {
+            UsuarioRepository usuarioRepository,
+            EspacioRepository espacioRepository,
+            UsuarioComunidadRepository usuarioComunidadRepository,
+            IncidenciaRepository incidenciaRepository,
+            HistorialIncidenciaRepository historialRepository,
+            EntityManager entityManager) {
         this.usuarioRepository = usuarioRepository;
         this.espacioRepository = espacioRepository;
         this.usuarioComunidadRepository = usuarioComunidadRepository;
@@ -46,46 +47,39 @@ public class IncidenciaService {
         this.historialRepository = historialRepository;
         this.entityManager = entityManager;
     }
-     @Transactional
+
+    @Transactional
     public IncidenciaResponse crear(
             CrearIncidenciaRequest request,
             Integer usuarioAutenticadoId) {
 
         Usuario usuario = usuarioRepository.findById(usuarioAutenticadoId)
-            .orElseThrow(() ->
-                new RecursoNoEncontradoException("Usuario no encontrado")
-            );
+                .orElseThrow(() -> new RecursoNoEncontradoException("Usuario no encontrado"));
 
         if (usuario.getEstado() != EstadoUsuario.ACTIVO) {
             throw new OperacionNoPermitidaException(
-                "La cuenta de usuario debe estar activa"
-            );
+                    "La cuenta de usuario debe estar activa");
         }
 
         if (!"USUARIO".equals(usuario.getRol().getNombre())) {
             throw new OperacionNoPermitidaException(
-                "Esta operación de alta está habilitada para vecinos"
-            );
+                    "Esta operación de alta está habilitada para vecinos");
         }
 
         Espacio espacio = espacioRepository.findById(request.espacioId())
-            .orElseThrow(() ->
-                new RecursoNoEncontradoException("Espacio no encontrado")
-            );
+                .orElseThrow(() -> new RecursoNoEncontradoException("Espacio no encontrado"));
 
         Integer comunidadId = espacio.getComunidad().getId();
 
         boolean pertenece = usuarioComunidadRepository
-            .existsByUsuario_IdAndComunidad_IdAndEstado(
-                usuario.getId(),
-                comunidadId,
-                EstadoUsuario.ACTIVO
-            );
+                .existsByUsuario_IdAndComunidad_IdAndEstado(
+                        usuario.getId(),
+                        comunidadId,
+                        EstadoUsuario.ACTIVO);
 
         if (!pertenece) {
             throw new OperacionNoPermitidaException(
-                "No tienes una pertenencia activa a esta comunidad"
-            );
+                    "No tienes una pertenencia activa a esta comunidad");
         }
 
         Incidencia incidencia = new Incidencia();
@@ -113,19 +107,67 @@ public class IncidenciaService {
         historialRepository.save(evento);
 
         return new IncidenciaResponse(
-            incidencia.getId(),
-            incidencia.getTitulo(),
-            incidencia.getDescripcion(),
-            incidencia.getPrioridad(),
-            incidencia.getEstado(),
-            incidencia.getFechaCreacion(),
-            espacio.getId(),
-            comunidadId,
-            usuario.getId(),
-            usuario.getId(),
-            null
-        );
+                incidencia.getId(),
+                incidencia.getTitulo(),
+                incidencia.getDescripcion(),
+                incidencia.getPrioridad(),
+                incidencia.getEstado(),
+                incidencia.getFechaCreacion(),
+                espacio.getId(),
+                comunidadId,
+                usuario.getId(),
+                usuario.getId(),
+                null);
     }
 
-    
+    @Transactional
+    public List<IncidenciaResponse> listarMisIncidencias(
+            Integer usuarioAutenticadoId) {
+
+        Usuario usuario = usuarioRepository.findById(usuarioAutenticadoId)
+                .orElseThrow(() -> new RecursoNoEncontradoException("Usuario no encontrado"));
+
+        if (usuario.getEstado() != EstadoUsuario.ACTIVO) {
+            throw new OperacionNoPermitidaException(
+                    "La cuenta de usuario debe estar activa");
+        }
+
+        if (!"USUARIO".equals(usuario.getRol().getNombre())) {
+            throw new OperacionNoPermitidaException(
+                    "Esta consulta está habilitada para vecinos");
+        }
+
+        var comunidadesActivas = usuarioComunidadRepository
+                .findByUsuario_IdAndEstado(
+                        usuario.getId(),
+                        EstadoUsuario.ACTIVO)
+                .stream()
+                .map(pertenencia -> pertenencia.getComunidad().getId())
+                .collect(java.util.stream.Collectors.toSet());
+
+        var incidencias = incidenciaRepository
+                .findByUsuarioReporta_IdOrVecinoVerificador_IdOrderByFechaCreacionDescIdDesc(
+                        usuario.getId(),
+                        usuario.getId());
+
+        return incidencias.stream()
+                .filter(incidencia -> comunidadesActivas.contains(
+                        incidencia.getEspacio().getComunidad().getId()))
+                .map(incidencia -> new IncidenciaResponse(
+                        incidencia.getId(),
+                        incidencia.getTitulo(),
+                        incidencia.getDescripcion(),
+                        incidencia.getPrioridad(),
+                        incidencia.getEstado(),
+                        incidencia.getFechaCreacion(),
+                        incidencia.getEspacio().getId(),
+                        incidencia.getEspacio().getComunidad().getId(),
+                        incidencia.getUsuarioReporta().getId(),
+                        incidencia.getVecinoVerificador().getId(),
+                        incidencia.getTecnicoAsignado() != null
+                                ? incidencia.getTecnicoAsignado().getId()
+                                : null))
+                .toList();
+    }
+
 }

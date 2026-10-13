@@ -15,4 +15,8 @@ public interface IncidenciaRepository
     List<Incidencia> findByTecnicoAsignado_Id(Integer tecnicoId);
 
     List<Incidencia> findByEspacio_Comunidad_Id(Integer comunidadId);
+
+    List<Incidencia> findByUsuarioReporta_IdOrVecinoVerificador_IdOrderByFechaCreacionDescIdDesc(
+            Integer usuarioReportaId,
+            Integer vecinoVerificadorId);
 }
