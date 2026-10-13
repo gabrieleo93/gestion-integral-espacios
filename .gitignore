@@ -1,0 +1,24 @@
+# Archivos generados al compilar
+**/target/
+
+# Dependencias y compilación del frontend
+**/node_modules/
+**/dist/
+**/.angular/
+
+# Configuración local de los editores
+**/.idea/
+**/.vscode/
+*.iml
+
+# Credenciales y configuración local
+.env
+.env.*
+!.env.example
+**/application-local.properties
+**/application-local.yml
+
+# Registros y archivos del sistema
+*.log
+.DS_Store
+Thumbs.db
