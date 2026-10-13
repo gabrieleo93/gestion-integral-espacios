@@ -3,8 +3,10 @@ package com.gestioncomunidad.backend;
 import com.gestioncomunidad.backend.dto.CrearIncidenciaRequest;
 import com.gestioncomunidad.backend.dto.IncidenciaResponse;
 import com.gestioncomunidad.backend.entity.*;
+import com.gestioncomunidad.backend.exception.OperacionNoPermitidaException;
 import com.gestioncomunidad.backend.repositories.*;
 import com.gestioncomunidad.backend.service.IncidenciaService;
+
 
 import jakarta.persistence.EntityManager;
 
@@ -138,4 +140,107 @@ class IncidenciaServiceTests {
         assertEquals(guardada.getId(), evento.getIncidencia().getId());
         assertNotNull(evento.getFechaEvento());
     }
+    @Test
+void vecinoSinPertenenciaNoPuedeCrearIncidencia() {
+    Comunidad comunidad = new Comunidad();
+    comunidad.setNombre("Comunidad ajena de prueba");
+    comunidad.setDireccion("Calle de prueba 2");
+    comunidad.setCiudad("Madrid");
+    comunidadRepository.save(comunidad);
+
+    Espacio espacio = new Espacio();
+    espacio.setNombre("Portal de comunidad ajena");
+    espacio.setTipo("PORTAL");
+    espacio.setComunidad(comunidad);
+    espacioRepository.save(espacio);
+
+    Rol rol = rolRepository.findByNombre("USUARIO")
+        .orElseThrow(() ->
+            new IllegalStateException("Falta el rol USUARIO en MySQL")
+        );
+
+    Usuario vecino = new Usuario();
+    vecino.setNombre("Vecino");
+    vecino.setApellidos("Sin pertenencia");
+    vecino.setEmail(UUID.randomUUID() + "@example.test");
+    vecino.setPasswordHash("DATO_FICTICIO_SIN_ACCESO");
+    vecino.setEstado(EstadoUsuario.ACTIVO);
+    vecino.setRol(rol);
+    usuarioRepository.save(vecino);
+
+    // No creamos una pertenencia entre este vecino y la comunidad.
+    entityManager.flush();
+
+    long incidenciasAntes = incidenciaRepository.count();
+    long eventosAntes = historialRepository.count();
+
+    CrearIncidenciaRequest request = new CrearIncidenciaRequest(
+        "Luz averiada",
+        "Intento de registrar una incidencia en una comunidad ajena.",
+        PrioridadIncidencia.MEDIA,
+        espacio.getId()
+    );
+
+    assertThrows(
+        OperacionNoPermitidaException.class,
+        () -> incidenciaService.crear(request, vecino.getId())
+    );
+
+    assertEquals(incidenciasAntes, incidenciaRepository.count());
+    assertEquals(eventosAntes, historialRepository.count());
+}
+@Test
+void vecinoConPertenenciaPendienteNoPuedeCrearIncidencia() {
+    Comunidad comunidad = new Comunidad();
+    comunidad.setNombre("Comunidad con alta pendiente");
+    comunidad.setDireccion("Calle de prueba 3");
+    comunidad.setCiudad("Madrid");
+    comunidadRepository.save(comunidad);
+
+    Espacio espacio = new Espacio();
+    espacio.setNombre("Portal de prueba");
+    espacio.setTipo("PORTAL");
+    espacio.setComunidad(comunidad);
+    espacioRepository.save(espacio);
+
+    Rol rol = rolRepository.findByNombre("USUARIO")
+        .orElseThrow(() ->
+            new IllegalStateException("Falta el rol USUARIO en MySQL")
+        );
+
+    Usuario vecino = new Usuario();
+    vecino.setNombre("Vecino");
+    vecino.setApellidos("Pendiente de aprobación");
+    vecino.setEmail(UUID.randomUUID() + "@example.test");
+    vecino.setPasswordHash("DATO_FICTICIO_SIN_ACCESO");
+    vecino.setEstado(EstadoUsuario.ACTIVO);
+    vecino.setRol(rol);
+    usuarioRepository.save(vecino);
+
+    UsuarioComunidad pertenencia = new UsuarioComunidad();
+    pertenencia.setUsuario(vecino);
+    pertenencia.setComunidad(comunidad);
+    pertenencia.setEstado(EstadoUsuario.PENDIENTE);
+    usuarioComunidadRepository.save(pertenencia);
+
+    entityManager.flush();
+
+    long incidenciasAntes = incidenciaRepository.count();
+    long eventosAntes = historialRepository.count();
+
+    CrearIncidenciaRequest request = new CrearIncidenciaRequest(
+        "Luz averiada",
+        "Intento de alta con la pertenencia pendiente de aprobación.",
+        PrioridadIncidencia.MEDIA,
+        espacio.getId()
+    );
+
+    assertThrows(
+        OperacionNoPermitidaException.class,
+        () -> incidenciaService.crear(request, vecino.getId())
+    );
+
+    assertEquals(incidenciasAntes, incidenciaRepository.count());
+    assertEquals(eventosAntes, historialRepository.count());
+}
 }
