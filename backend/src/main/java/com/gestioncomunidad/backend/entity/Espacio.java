@@ -14,7 +14,7 @@ public class Espacio {
     @Column(name = "nombre", nullable = false, length = 100)
     private String nombre;
 
-    @Column(name = "tipo", length = 100)
+    @Column(name = "tipo", nullable = false, length = 100)
     private String tipo;
 
     @Column(name = "descripcion", columnDefinition = "TEXT")

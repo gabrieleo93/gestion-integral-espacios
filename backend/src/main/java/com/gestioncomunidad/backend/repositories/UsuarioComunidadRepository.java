@@ -8,8 +8,8 @@ import org.springframework.data.jpa.repository.JpaRepository;
 import com.gestioncomunidad.backend.entity.EstadoUsuario;
 import com.gestioncomunidad.backend.entity.UsuarioComunidad;
 
-public interface UsuarioComunidadRepository extends JpaRepository<UsuarioComunidad, Long> {
-     Optional<UsuarioComunidad> findByUsuarioIdAndComunidadId(Long usuarioId, Long comunidadId);
+public interface UsuarioComunidadRepository extends JpaRepository<UsuarioComunidad, Integer> {
+     Optional<UsuarioComunidad> findByUsuarioIdAndComunidadId(Integer usuarioId, Integer comunidadId);
 
      List<UsuarioComunidad> findByUsuario_IdAndEstado(
         Integer usuarioId,

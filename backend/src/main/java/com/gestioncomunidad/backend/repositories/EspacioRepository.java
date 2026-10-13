@@ -6,7 +6,7 @@ import org.springframework.data.jpa.repository.JpaRepository;
 import java.util.List;
 
 public interface EspacioRepository
-        extends JpaRepository<Espacio, Long> {
+        extends JpaRepository<Espacio, Integer> {
 
-    List<Espacio> findByComunidad_Id(Long comunidadId);
+    List<Espacio> findByComunidad_Id(Integer comunidadId);
 }

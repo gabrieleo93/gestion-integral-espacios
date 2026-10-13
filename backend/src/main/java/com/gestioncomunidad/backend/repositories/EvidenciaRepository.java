@@ -6,10 +6,10 @@ import org.springframework.data.jpa.repository.JpaRepository;
 import java.util.List;
 
 public interface EvidenciaRepository
-        extends JpaRepository<Evidencia, Long> {
+        extends JpaRepository<Evidencia, Integer> {
 
     List<Evidencia> findByIncidencia_IdOrderByFechaSubidaAscIdAsc(
-        Long incidenciaId
+        Integer incidenciaId
     );
 
     List<Evidencia> findByHistorial_Id(Long historialId);

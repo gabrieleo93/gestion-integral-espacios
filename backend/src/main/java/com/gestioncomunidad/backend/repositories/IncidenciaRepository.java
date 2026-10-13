@@ -6,13 +6,13 @@ import org.springframework.data.jpa.repository.JpaRepository;
 import java.util.List;
 
 public interface IncidenciaRepository
-        extends JpaRepository<Incidencia, Long> {
+        extends JpaRepository<Incidencia, Integer> {
 
-    List<Incidencia> findByUsuarioReporta_Id(Long usuarioId);
+    List<Incidencia> findByUsuarioReporta_Id(Integer usuarioId);
 
-    List<Incidencia> findByVecinoVerificador_Id(Long usuarioId);
+    List<Incidencia> findByVecinoVerificador_Id(Integer usuarioId);
 
-    List<Incidencia> findByTecnicoAsignado_Id(Long tecnicoId);
+    List<Incidencia> findByTecnicoAsignado_Id(Integer tecnicoId);
 
-    List<Incidencia> findByEspacio_Comunidad_Id(Long comunidadId);
+    List<Incidencia> findByEspacio_Comunidad_Id(Integer comunidadId);
 }

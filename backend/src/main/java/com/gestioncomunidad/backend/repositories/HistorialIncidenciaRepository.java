@@ -9,6 +9,6 @@ public interface HistorialIncidenciaRepository
         extends JpaRepository<HistorialIncidencia, Long> {
 
     List<HistorialIncidencia> findByIncidencia_IdOrderByFechaEventoAscIdAsc(
-        Long incidenciaId
+        Integer incidenciaId
     );
 }
