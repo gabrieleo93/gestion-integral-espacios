@@ -1,11 +1,12 @@
 package com.gestioncomunidad.backend.controller;
 
 import com.gestioncomunidad.backend.dto.CrearIncidenciaRequest;
+import com.gestioncomunidad.backend.dto.IncidenciaDetalleResponse;
 import com.gestioncomunidad.backend.dto.IncidenciaResponse;
 import com.gestioncomunidad.backend.exception.OperacionNoPermitidaException;
 import com.gestioncomunidad.backend.repositories.UsuarioRepository;
 import com.gestioncomunidad.backend.service.IncidenciaService;
-
+import com.gestioncomunidad.backend.dto.HistorialIncidenciaResponse;
 import jakarta.validation.Valid;
 
 import org.springframework.http.HttpStatus;
@@ -19,45 +20,73 @@ import java.util.List;
 @RequestMapping("/api/incidencias")
 public class IncidenciaController {
 
-    private final IncidenciaService incidenciaService;
-    private final UsuarioRepository usuarioRepository;
+        private final IncidenciaService incidenciaService;
+        private final UsuarioRepository usuarioRepository;
 
-    public IncidenciaController(
-            IncidenciaService incidenciaService,
-            UsuarioRepository usuarioRepository) {
+        public IncidenciaController(
+                        IncidenciaService incidenciaService,
+                        UsuarioRepository usuarioRepository) {
 
-        this.incidenciaService = incidenciaService;
-        this.usuarioRepository = usuarioRepository;
-    }
+                this.incidenciaService = incidenciaService;
+                this.usuarioRepository = usuarioRepository;
+        }
 
-    @PostMapping
-    public ResponseEntity<IncidenciaResponse> crear(
-            @Valid @RequestBody CrearIncidenciaRequest request,
-            Authentication authentication) {
+        @PostMapping
+        public ResponseEntity<IncidenciaResponse> crear(
+                        @Valid @RequestBody CrearIncidenciaRequest request,
+                        Authentication authentication) {
 
-        Integer usuarioId = usuarioRepository
-                .findByEmail(authentication.getName())
-                .orElseThrow(() -> new OperacionNoPermitidaException(
-                        "La cuenta de la sesión ya no está disponible"))
-                .getId();
+                Integer usuarioId = usuarioRepository
+                                .findByEmail(authentication.getName())
+                                .orElseThrow(() -> new OperacionNoPermitidaException(
+                                                "La cuenta de la sesión ya no está disponible"))
+                                .getId();
 
-        IncidenciaResponse respuesta = incidenciaService.crear(request, usuarioId);
+                IncidenciaResponse respuesta = incidenciaService.crear(request, usuarioId);
 
-        return ResponseEntity
-                .status(HttpStatus.CREATED)
-                .body(respuesta);
-    }
+                return ResponseEntity
+                                .status(HttpStatus.CREATED)
+                                .body(respuesta);
+        }
 
-    @GetMapping
-    public List<IncidenciaResponse> listarMisIncidencias(
-            Authentication authentication) {
+        @GetMapping
+        public List<IncidenciaResponse> listarMisIncidencias(
+                        Authentication authentication) {
 
-        Integer usuarioId = usuarioRepository
-                .findByEmail(authentication.getName())
-                .orElseThrow(() -> new OperacionNoPermitidaException(
-                        "La cuenta de la sesión ya no está disponible"))
-                .getId();
+                Integer usuarioId = usuarioRepository
+                                .findByEmail(authentication.getName())
+                                .orElseThrow(() -> new OperacionNoPermitidaException(
+                                                "La cuenta de la sesión ya no está disponible"))
+                                .getId();
 
-        return incidenciaService.listarMisIncidencias(usuarioId);
-    }
+                return incidenciaService.listarMisIncidencias(usuarioId);
+        }
+
+        @GetMapping("/{id}")
+        public IncidenciaDetalleResponse consultarDetalle(
+                        @PathVariable("id") Integer id,
+                        Authentication authentication) {
+
+                Integer usuarioId = usuarioRepository
+                                .findByEmail(authentication.getName())
+                                .orElseThrow(() -> new OperacionNoPermitidaException(
+                                                "La cuenta de la sesión ya no está disponible"))
+                                .getId();
+
+                return incidenciaService.consultarDetalle(id, usuarioId);
+        }
+
+        @GetMapping("/{id}/historial")
+        public List<HistorialIncidenciaResponse> consultarHistorial(
+                        @PathVariable("id") Integer id,
+                        Authentication authentication) {
+
+                Integer usuarioId = usuarioRepository
+                                .findByEmail(authentication.getName())
+                                .orElseThrow(() -> new OperacionNoPermitidaException(
+                                                "La cuenta de la sesión ya no está disponible"))
+                                .getId();
+
+                return incidenciaService.consultarHistorial(id, usuarioId);
+        }
 }

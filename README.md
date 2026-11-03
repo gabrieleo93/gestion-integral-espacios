@@ -22,7 +22,8 @@ El proyecto se encuentra en desarrollo. La versión actual incluye:
 - Autenticación con usuarios de MySQL, contraseñas BCrypt y sesiones.
 - Protección CSRF.
 - Alta de incidencias con registro de su primer evento de historial.
-- Consulta de incidencias del vecino autenticado.
+- Listado, detalle e historial cronológico de las incidencias accesibles al vecino autenticado.
+- Consulta de espacios de las comunidades con pertenencia activa para vecinos y administradores.
 - Perfil demo para crear una cuenta de prueba.
 - Pruebas de integración del servicio de alta con MySQL.
 
@@ -263,6 +264,9 @@ Los identificadores dependen de cada instalación y no deben suponerse.
 | GET | /api/sesion | Consultar el correo y las autoridades de la sesión. |
 | POST | /api/incidencias | Crear una incidencia. Requiere sesión y CSRF. |
 | GET | /api/incidencias | Listar los casos accesibles del vecino conectado. |
+| GET | /api/espacios | Listar espacios de las comunidades con pertenencia activa del vecino o administrador. |
+| GET | /api/incidencias/{id} | Consultar el detalle de una incidencia accesible para el vecino. |
+| GET | /api/incidencias/{id}/historial | Consultar sus eventos por fecha e identificador, con los mismos permisos del detalle. |
 
 La identificación del autor se obtiene de la sesión.
 El cliente no envía el identificador del usuario reportante.
@@ -376,6 +380,27 @@ la respuesta es una lista vacía.
 
 ## Pruebas automatizadas
 
+### Recorrido HTTP del vecino en la instalación local
+
+Con el backend arrancado y la cuenta y el espacio demo preparados, ejecutar desde
+`backend` en PowerShell 7:
+
+```powershell
+# La contraseña se introduce de forma oculta y se usa solo para esta prueba.
+.\scripts\probar-recorrido-vecino.ps1 -ClaveDemo (Read-Host 'Contraseña demo' -AsSecureString)
+```
+
+Cada ejecución crea un caso en MySQL. El script imprime el ID recibido al crear
+la incidencia y lo utiliza para comprobar el listado, el detalle y el evento
+inicial del historial. Si alguna comprobación falla después del alta, conservar
+ese ID para investigar antes de repetir la ejecución.
+
+En las pruebas manuales, un vecino activo sin pertenencia obtuvo listas vacías
+de espacios e incidencias y acceso denegado al detalle y al historial del caso 6.
+Una petición de historial sin sesión desde el navegador se redirigió al login.
+
+### Pruebas de integración del servicio
+
 Con MySQL preparado y las variables de conexión configuradas,
 ejecutar desde backend:
 
@@ -405,6 +430,22 @@ IncidenciaServiceTests. La ejecución completa de la suite debe
 comprobarse por separado.
 
 ## Validación realizada
+
+### Recorrido del vecino verificado en noviembre de 2026
+
+| Escenario | Resultado observado en la instalación local |
+|---|---|
+| Crear una incidencia en Portal principal con sesión y CSRF | HTTP 201. El script siguió el ID devuelto (7) y comprobó el listado, los datos del detalle y el evento inicial CREACION en estado PENDIENTE. |
+| Consultar el historial de la incidencia 6 como vecino autorizado | La respuesta incluye el evento CREACION, su fecha y el vecino que lo registró. |
+| Consultar el historial de una incidencia inexistente | HTTP 404 con el mensaje «Incidencia no encontrada». |
+| Abrir el historial sin sesión desde el navegador | Redirección al formulario de acceso. |
+| Consultar como vecino activo sin pertenencia a la comunidad | HTTP 403 en detalle e historial. Los listados de incidencias y espacios devolvieron listas vacías. |
+
+Queda por verificar el acceso de un vecino activo de la misma comunidad que no sea
+reportante ni verificador. Debe poder consultar sus espacios y recibir un 403
+al abrir el detalle o el historial de esa incidencia.
+
+### Comprobaciones iniciales de octubre de 2026
 
 Durante el 13 de octubre de 2026 se comprobó:
 
