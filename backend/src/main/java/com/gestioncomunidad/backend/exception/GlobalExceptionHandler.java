@@ -14,6 +14,13 @@ import java.util.Map;
 @RestControllerAdvice
 public class GlobalExceptionHandler {
 
+    // Mantiene el formato de error de la API para validaciones de negocio.
+    @ExceptionHandler(DatosNoValidosException.class)
+    public ResponseEntity<ErrorResponse> datosDeNegocioNoValidos(DatosNoValidosException exception) {
+        return ResponseEntity.badRequest().body(new ErrorResponse(
+                HttpStatus.BAD_REQUEST.value(), exception.getMessage(), Map.of()));
+    }
+
     @ExceptionHandler(RecursoNoEncontradoException.class)
     public ResponseEntity<ErrorResponse> recursoNoEncontrado(
             RecursoNoEncontradoException exception) {

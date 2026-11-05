@@ -25,7 +25,16 @@ public record CrearIncidenciaRequest(
 
     @NotNull(message = "El espacio es obligatorio")
     @Positive(message = "El identificador del espacio debe ser positivo")
-    Integer espacioId
-){
+    Integer espacioId,
 
+    // El administrador debe elegir un vecino verificador. Para el vecino,
+    // el servicio conserva al propio autor como verificador inicial.
+    @Positive(message = "El identificador del verificador debe ser positivo")
+    Integer vecinoVerificadorId
+){
+    // Conserva las llamadas Java existentes y el alta del vecino sin este nuevo dato.
+    public CrearIncidenciaRequest(String titulo, String descripcion,
+            PrioridadIncidencia prioridad, Integer espacioId) {
+        this(titulo, descripcion, prioridad, espacioId, null);
+    }
 }

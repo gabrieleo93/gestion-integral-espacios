@@ -1,6 +1,7 @@
 package com.gestioncomunidad.backend.controller;
 
 import com.gestioncomunidad.backend.dto.CrearIncidenciaRequest;
+import com.gestioncomunidad.backend.dto.EditarIncidenciaRequest;
 import com.gestioncomunidad.backend.dto.IncidenciaDetalleResponse;
 import com.gestioncomunidad.backend.dto.IncidenciaResponse;
 import com.gestioncomunidad.backend.exception.OperacionNoPermitidaException;
@@ -19,6 +20,21 @@ import java.util.List;
 @RestController
 @RequestMapping("/api/incidencias")
 public class IncidenciaController {
+
+        // PUT sustituye los tres datos generales. La identidad procede de la sesión,
+        // y @Valid comprueba los campos antes de entrar al servicio.
+        @PutMapping("/{id}/datos")
+        public ResponseEntity<Void> editarDatos(
+                        @PathVariable("id") Integer id,
+                        @Valid @RequestBody EditarIncidenciaRequest request,
+                        Authentication authentication) {
+                Integer usuarioId = usuarioRepository.findByEmail(authentication.getName())
+                                .orElseThrow(() -> new OperacionNoPermitidaException(
+                                                "La cuenta de la sesión ya no está disponible"))
+                                .getId();
+                incidenciaService.editarDatos(id, usuarioId, request);
+                return ResponseEntity.noContent().build();
+        }
 
         private final IncidenciaService incidenciaService;
         private final UsuarioRepository usuarioRepository;

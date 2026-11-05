@@ -4,6 +4,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import com.gestioncomunidad.backend.dto.CrearIncidenciaRequest;
+import com.gestioncomunidad.backend.dto.EditarIncidenciaRequest;
 import com.gestioncomunidad.backend.dto.IncidenciaDetalleResponse;
 import com.gestioncomunidad.backend.dto.IncidenciaResponse;
 import com.gestioncomunidad.backend.entity.Espacio;
@@ -13,6 +14,7 @@ import com.gestioncomunidad.backend.entity.HistorialIncidencia;
 import com.gestioncomunidad.backend.entity.Incidencia;
 import com.gestioncomunidad.backend.entity.Usuario;
 import com.gestioncomunidad.backend.exception.OperacionNoPermitidaException;
+import com.gestioncomunidad.backend.exception.DatosNoValidosException;
 import com.gestioncomunidad.backend.exception.RecursoNoEncontradoException;
 import com.gestioncomunidad.backend.repositories.EspacioRepository;
 import com.gestioncomunidad.backend.repositories.HistorialIncidenciaRepository;
@@ -63,9 +65,11 @@ public class IncidenciaService {
                                         "La cuenta de usuario debe estar activa");
                 }
 
-                if (!"USUARIO".equals(usuario.getRol().getNombre())) {
+                // El alta admite vecinos y administradores; ambos necesitan pertenencia activa.
+                boolean esAdministrador = "ADMINISTRADOR".equals(usuario.getRol().getNombre());
+                if (!"USUARIO".equals(usuario.getRol().getNombre()) && !esAdministrador) {
                         throw new OperacionNoPermitidaException(
-                                        "Esta operación de alta está habilitada para vecinos");
+                                        "Esta operación de alta está habilitada para vecinos y administradores");
                 }
 
                 Espacio espacio = espacioRepository.findById(request.espacioId())
@@ -84,6 +88,28 @@ public class IncidenciaService {
                                         "No tienes una pertenencia activa a esta comunidad");
                 }
 
+                // La confirmación posterior corresponde a un vecino activo de esta comunidad.
+                // Comprobamos todos los datos antes de guardar la incidencia o su historial.
+                Usuario verificador = usuario;
+                if (esAdministrador) {
+                        if (request.vecinoVerificadorId() == null) {
+                                throw new DatosNoValidosException("El administrador debe indicar un vecino verificador");
+                        }
+                        verificador = usuarioRepository.findById(request.vecinoVerificadorId())
+                                        .orElseThrow(() -> new DatosNoValidosException("El vecino verificador no existe"));
+                        if (verificador.getEstado() != EstadoUsuario.ACTIVO
+                                        || !"USUARIO".equals(verificador.getRol().getNombre())
+                                        || !usuarioComunidadRepository.existsByUsuario_IdAndComunidad_IdAndEstado(
+                                                        verificador.getId(), comunidadId, EstadoUsuario.ACTIVO)) {
+                                throw new DatosNoValidosException(
+                                                "El verificador debe ser un vecino activo con pertenencia activa a esta comunidad");
+                        }
+                } else if (request.vecinoVerificadorId() != null
+                                && !usuario.getId().equals(request.vecinoVerificadorId())) {
+                        // Un vecino no puede utilizar el nuevo campo para delegar su confirmación.
+                        throw new DatosNoValidosException("El vecino creador debe ser el verificador inicial");
+                }
+
                 Incidencia incidencia = new Incidencia();
                 incidencia.setTitulo(request.titulo().strip());
                 incidencia.setDescripcion(request.descripcion().strip());
@@ -91,7 +117,7 @@ public class IncidenciaService {
                 incidencia.setEstado(EstadoIncidencia.PENDIENTE);
                 incidencia.setEspacio(espacio);
                 incidencia.setUsuarioReporta(usuario);
-                incidencia.setVecinoVerificador(usuario);
+                incidencia.setVecinoVerificador(verificador);
 
                 incidenciaRepository.saveAndFlush(incidencia);
 
@@ -104,7 +130,11 @@ public class IncidenciaService {
                 evento.setAccion("CREACION");
                 evento.setEstadoAnterior(null);
                 evento.setEstadoNuevo(EstadoIncidencia.PENDIENTE.name());
-                evento.setDescripcion("El vecino registra la incidencia.");
+                // El actor siempre es quien inicia sesión, incluso si el verificador es otra persona.
+                evento.setDescripcion(esAdministrador
+                                ? "El administrador registra la incidencia."
+                                : "El vecino registra la incidencia.");
+                evento.setVerificadorNuevo(verificador);
 
                 historialRepository.save(evento);
 
@@ -118,11 +148,12 @@ public class IncidenciaService {
                                 espacio.getId(),
                                 comunidadId,
                                 usuario.getId(),
-                                usuario.getId(),
+                                verificador.getId(),
                                 null);
         }
 
-        @Transactional
+        // Esta operación solo consulta. La transacción permite leer las relaciones JPA del DTO.
+        @Transactional(readOnly = true)
         public List<IncidenciaResponse> listarMisIncidencias(
                         Integer usuarioAutenticadoId) {
 
@@ -134,9 +165,11 @@ public class IncidenciaService {
                                         "La cuenta de usuario debe estar activa");
                 }
 
-                if (!"USUARIO".equals(usuario.getRol().getNombre())) {
+                // El administrador consulta los casos de sus comunidades con la misma pertenencia activa.
+                if (!"USUARIO".equals(usuario.getRol().getNombre())
+                                && !"ADMINISTRADOR".equals(usuario.getRol().getNombre())) {
                         throw new OperacionNoPermitidaException(
-                                        "Esta consulta está habilitada para vecinos");
+                                        "Esta consulta está habilitada para vecinos y administradores");
                 }
 
                 var comunidadesActivas = usuarioComunidadRepository
@@ -147,14 +180,17 @@ public class IncidenciaService {
                                 .map(pertenencia -> pertenencia.getComunidad().getId())
                                 .collect(java.util.stream.Collectors.toSet());
 
+                // Sin pertenencias activas no hay incidencias visibles; evitamos una consulta IN vacía.
+                if (comunidadesActivas.isEmpty()) {
+                        return List.of();
+                }
+
+                // La visibilidad depende de la comunidad, aunque el aviso lo haya creado otro vecino.
+                // Se conserva el nombre del método para mantener los controladores existentes.
                 var incidencias = incidenciaRepository
-                                .findByUsuarioReporta_IdOrVecinoVerificador_IdOrderByFechaCreacionDescIdDesc(
-                                                usuario.getId(),
-                                                usuario.getId());
+                                .findByEspacio_Comunidad_IdInOrderByFechaCreacionDescIdDesc(comunidadesActivas);
 
                 return incidencias.stream()
-                                .filter(incidencia -> comunidadesActivas.contains(
-                                                incidencia.getEspacio().getComunidad().getId()))
                                 .map(incidencia -> new IncidenciaResponse(
                                                 incidencia.getId(),
                                                 incidencia.getTitulo(),
@@ -236,6 +272,61 @@ public class IncidenciaService {
                                 .toList();
         }
 
+        // La escritura tiene su propia autorización: consultar por comunidad
+        // nunca basta para modificar un aviso creado por otro vecino.
+        @Transactional
+        public void editarDatos(Integer incidenciaId, Integer usuarioId, EditarIncidenciaRequest request) {
+                Usuario actor = usuarioRepository.findById(usuarioId)
+                                .orElseThrow(() -> new OperacionNoPermitidaException(
+                                                "La cuenta de la sesión ya no está disponible"));
+                if (actor.getEstado() != EstadoUsuario.ACTIVO) {
+                        throw new OperacionNoPermitidaException("La cuenta de usuario debe estar activa");
+                }
+
+                String rol = actor.getRol().getNombre();
+                if (!"USUARIO".equals(rol) && !"ADMINISTRADOR".equals(rol)) {
+                        throw new OperacionNoPermitidaException("Tu rol no permite editar los datos de la incidencia");
+                }
+
+                Incidencia incidencia = incidenciaRepository.findByIdParaActualizar(incidenciaId)
+                                .orElseThrow(() -> new RecursoNoEncontradoException("Incidencia no encontrada"));
+                boolean pertenece = usuarioComunidadRepository.existsByUsuario_IdAndComunidad_IdAndEstado(
+                                actor.getId(), incidencia.getEspacio().getComunidad().getId(), EstadoUsuario.ACTIVO);
+                boolean esAutor = actor.getId().equals(incidencia.getUsuarioReporta().getId());
+                // También el administrador necesita pertenencia activa a esta comunidad.
+                if (!pertenece || (!esAutor && !"ADMINISTRADOR".equals(rol))) {
+                        throw new OperacionNoPermitidaException("No tienes permiso para modificar esta incidencia");
+                }
+
+                String titulo = request.titulo().strip();
+                String descripcion = request.descripcion().strip();
+                // Repetir la misma petición no genera eventos de edición vacíos.
+                if (titulo.equals(incidencia.getTitulo()) && descripcion.equals(incidencia.getDescripcion())
+                                && request.prioridad() == incidencia.getPrioridad()) {
+                        return;
+                }
+
+                HistorialIncidencia evento = new HistorialIncidencia();
+                evento.setIncidencia(incidencia);
+                evento.setUsuarioActor(actor);
+                evento.setAccion("EDICION_DATOS");
+                evento.setEstadoAnterior(incidencia.getEstado().name());
+                evento.setEstadoNuevo(incidencia.getEstado().name());
+                // Guardamos antes y después para poder explicar la modificación en el historial.
+                evento.setDescripcion("Título anterior: " + incidencia.getTitulo()
+                                + "\nTítulo nuevo: " + titulo
+                                + "\nDescripción anterior: " + incidencia.getDescripcion()
+                                + "\nDescripción nueva: " + descripcion
+                                + "\nPrioridad anterior: " + incidencia.getPrioridad()
+                                + "\nPrioridad nueva: " + request.prioridad());
+                incidencia.setTitulo(titulo);
+                incidencia.setDescripcion(descripcion);
+                incidencia.setPrioridad(request.prioridad());
+                // La transacción guarda los datos y el historial juntos o revierte ambos si falla.
+                incidenciaRepository.save(incidencia);
+                historialRepository.save(evento);
+        }
+
         private Incidencia obtenerIncidenciaAccesible(
                         Integer incidenciaId,
                         Integer usuarioAutenticadoId) {
@@ -249,9 +340,11 @@ public class IncidenciaService {
                                         "La cuenta de usuario debe estar activa");
                 }
 
-                if (!"USUARIO".equals(usuario.getRol().getNombre())) {
+                // El administrador consulta los casos de sus comunidades con la misma pertenencia activa.
+                if (!"USUARIO".equals(usuario.getRol().getNombre())
+                                && !"ADMINISTRADOR".equals(usuario.getRol().getNombre())) {
                         throw new OperacionNoPermitidaException(
-                                        "Esta consulta está habilitada para vecinos");
+                                        "Esta consulta está habilitada para vecinos y administradores");
                 }
 
                 Incidencia incidencia = incidenciaRepository.findById(incidenciaId)
@@ -266,13 +359,10 @@ public class IncidenciaService {
                                                 comunidadId,
                                                 EstadoUsuario.ACTIVO);
 
-                boolean esReportante = usuario.getId()
-                                .equals(incidencia.getUsuarioReporta().getId());
-
-                boolean esVerificador = usuario.getId()
-                                .equals(incidencia.getVecinoVerificador().getId());
-
-                if (!pertenece || (!esReportante && !esVerificador)) {
+                // Detalle e historial comparten visibilidad para todos los vecinos activos
+                // de la comunidad. Este permiso es de lectura: futuras escrituras deben
+                // comprobar por separado la autoría, el rol y la acción solicitada.
+                if (!pertenece) {
                         throw new OperacionNoPermitidaException(
                                         "No tienes permiso para consultar esta incidencia");
                 }

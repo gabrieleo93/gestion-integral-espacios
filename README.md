@@ -27,12 +27,17 @@ El proyecto se encuentra en desarrollo. La versión actual incluye:
 - Perfil demo para crear una cuenta de prueba.
 - Pruebas de integración del servicio de alta con MySQL.
 
-El alta está habilitada para vecinos con cuenta activa y pertenencia
-activa a la comunidad del espacio. El vecino que registra la incidencia
-queda también como verificador inicial.
+El alta está habilitada para vecinos y administradores con cuenta activa y
+pertenencia activa a la comunidad del espacio. El vecino que registra el aviso
+queda como verificador inicial. El administrador indica vecinoVerificadorId,
+que debe corresponder a un vecino activo con pertenencia activa a esa comunidad.
+El administrador queda registrado como reportante y actor del evento CREACION.
 
-La consulta devuelve los casos donde el vecino es reportante o
-verificador y mantiene una pertenencia activa a la comunidad.
+El listado, el detalle y el historial permiten consultar todas las incidencias
+de las comunidades donde el vecino tiene una pertenencia activa, incluidas
+las creadas por otros vecinos. También puede consultar el administrador con
+pertenencia activa. La cuenta debe estar activa y tener rol USUARIO o ADMINISTRADOR.
+Este permiso de consulta no concede permisos de modificación.
 
 ## Funcionalidades pendientes
 
@@ -87,6 +92,7 @@ database/
   0_crear_base_datos.sql
   01_estructura_inicial.sql
   02_integridad_evidencias.sql
+  03_estado_facturacion_costes.sql
 
 README.md
 .gitignore
@@ -121,6 +127,32 @@ de la carpeta database en este orden:
 1. 0_crear_base_datos.sql
 2. 01_estructura_inicial.sql
 3. 02_integridad_evidencias.sql
+4. 03_estado_facturacion_costes.sql
+
+En una instalación ya preparada con los tres primeros scripts, ejecutar
+únicamente el cuarto. El modelo inicial se conserva como punto de partida
+y el cuarto script aplica la decisión de usar facturación en costes.
+
+### Estado de facturación de los costes
+
+La columna final es `estado_facturacion`:
+
+| Valor en la base de datos | Etiqueta de la pantalla |
+|---|---|
+| PENDIENTE_FACTURAR | Pendiente de facturar |
+| FACTURADO | Facturado |
+
+El valor inicial será PENDIENTE_FACTURAR. El módulo registrará si el coste
+ha sido facturado. Sus entidades Java y operaciones de API siguen pendientes.
+
+La migración 03 solo convierte automáticamente una tabla de costes vacía.
+Si existen registros, se detiene antes del ALTER TABLE y conserva los datos:
+el antiguo estado de pago no permite determinar si hay una factura emitida.
+En ese caso hay que revisar los registros y preparar su conversión explícita.
+Si el cliente SQL detiene la ejecución al recibir ese error, puede quedar
+creado el procedimiento auxiliar `migrar_estado_facturacion_costes`;
+retirarlo con `DROP PROCEDURE IF EXISTS migrar_estado_facturacion_costes;`
+antes de un nuevo intento acordado. No borrar costes para forzar la migración.
 
 Ejecutarlos sobre una instalación nueva. Los scripts de estructura
 y modificación no están preparados para repetirse sobre una base
@@ -267,6 +299,7 @@ Los identificadores dependen de cada instalación y no deben suponerse.
 | GET | /api/espacios | Listar espacios de las comunidades con pertenencia activa del vecino o administrador. |
 | GET | /api/incidencias/{id} | Consultar el detalle de una incidencia accesible para el vecino. |
 | GET | /api/incidencias/{id}/historial | Consultar sus eventos por fecha e identificador, con los mismos permisos del detalle. |
+| PUT | /api/incidencias/{id}/datos | Editar título, descripción y prioridad como creador o administrador de la comunidad. Requiere sesión y CSRF. |
 
 La identificación del autor se obtiene de la sesión.
 El cliente no envía el identificador del usuario reportante.
@@ -374,11 +407,92 @@ GET http://localhost:8080/api/incidencias
 Se espera 200 con una lista JSON. El GET no necesita token CSRF,
 pero sí la cookie de una sesión autenticada.
 
-Solo se devuelven casos donde el vecino sea reportante o verificador
-y tenga pertenencia activa a la comunidad. Si no hay casos accesibles,
+Se devuelven los casos de todas las comunidades donde el vecino tenga
+pertenencia activa, ordenados por fecha de creación e ID descendentes. Si no hay casos accesibles,
 la respuesta es una lista vacía.
 
 ## Pruebas automatizadas
+
+### Creación por administrador
+
+Se utiliza POST /api/incidencias con sesión y CSRF, agregando vecinoVerificadorId
+al JSON habitual. El frontend deberá permitir seleccionar un vecino verificador.
+La consulta de candidatos para ese selector aún está pendiente.
+
+```json
+{
+  "titulo": "Luz del portal averiada",
+  "descripcion": "El pulsador no enciende la luz.",
+  "prioridad": "MEDIA",
+  "espacioId": 9,
+  "vecinoVerificadorId": 9
+}
+```
+
+Los identificadores son ilustrativos de la instalación local: deben existir y
+cumplir los permisos de la comunidad. El POST devuelve 201, estado PENDIENTE,
+el administrador como reportante y el vecino indicado como verificador.
+No requiere modificar el esquema de incidencias existente.
+
+Un administrador sin pertenencia activa o una cuenta inactiva recibe 403.
+Un verificador ausente, inexistente, de otro rol, inactivo o sin pertenencia
+activa produce 400 antes de guardar. Los vecinos pueden seguir enviando el
+JSON anterior sin vecinoVerificadorId; si lo incluyen debe ser su propio ID.
+El técnico no puede crear incidencias.
+
+### Comprobaciones pendientes para cerrar los órdenes uno a tres
+
+Las pruebas de servicio usan repositorios simulados. Para cerrar la verificación
+de integración se necesita una base de desarrollo y sesiones de dos vecinos
+y un administrador activos de la misma comunidad, más una cuenta sin acceso.
+
+| Orden | Comprobación HTTP | Comprobación en MySQL |
+|---|---|---|
+| 1 Consulta | Ambos vecinos y el administrador ven el caso, su detalle e historial. La cuenta ajena recibe listas vacías y 403 en acceso directo. | Las pertenencias activas coinciden con las comunidades consultadas. Una pertenencia pendiente o inactiva no concede acceso. |
+| 2 Edición | Autor y administrador obtienen 204. Otro vecino y técnico reciben 403. Datos inválidos producen 400. Repetir los mismos datos no duplica eventos. | Los datos y EDICION_DATOS se guardan juntos. Si falla el historial, se revierte la edición. Dos ediciones concurrentes registran valores anteriores coherentes. |
+| 3 Alta administrativa | POST válido produce 201. Verificador inválido produce 400. Administrador ajeno o técnico reciben 403. El alta del vecino sigue funcionando. | Reportante y actor son el administrador; verificador es el vecino elegido. Existe un solo evento CREACION y no hay técnico asignado. Las peticiones rechazadas no insertan filas. |
+
+En las escrituras también se comprobará el rechazo sin token CSRF y la
+persistencia de los cambios tras reiniciar el backend. Estas comprobaciones
+se registrarán como realizadas solo después de ejecutarlas.
+
+### Edición de los datos de una incidencia
+
+El permiso de lectura por comunidad se comprueba por separado de la escritura.
+Para editar, la cuenta y la pertenencia deben estar activas. Puede hacerlo el
+vecino creador o un administrador vinculado a esa comunidad. Un vecino que solo
+sea verificador no puede editar. El técnico tiene pendientes sus operaciones
+específicas de actuación y estado.
+
+Enviar PUT /api/incidencias/{id}/datos con los tres campos:
+
+```json
+{
+  "titulo": "Luz del portal averiada",
+  "descripcion": "El pulsador de la entrada no enciende la luz.",
+  "prioridad": "ALTA"
+}
+```
+
+Una edición correcta devuelve HTTP 204. El título admite hasta 150 caracteres
+y la descripción hasta 5000. Ambos son obligatorios junto con la prioridad.
+Esta operación modifica datos generales en cualquier estado, sin transiciones
+de estado ni cambios de espacio, autor o asignación. La confirmación y el cierre
+se implementarán en sus operaciones específicas.
+
+Cada cambio crea un evento EDICION_DATOS con el actor y los valores anteriores
+y nuevos. La transacción agrupa ambos guardados, y un bloqueo de escritura
+serializa las ediciones de un mismo caso. Repetir los mismos datos devuelve 204
+sin crear otro evento.
+
+Las pruebas de servicio y validación se ejecutan desde backend:
+
+```powershell
+.\mvnw.cmd "-Dtest=ConsultaComunidadTests,EdicionIncidenciaTests" test
+```
+
+Queda pendiente probar esta edición por HTTP con sesión y CSRF y verificar en
+MySQL el bloqueo concurrente y la reversión si falla el guardado del historial.
 
 ### Recorrido HTTP del vecino en la instalación local
 
@@ -441,9 +555,26 @@ comprobarse por separado.
 | Abrir el historial sin sesión desde el navegador | Redirección al formulario de acceso. |
 | Consultar como vecino activo sin pertenencia a la comunidad | HTTP 403 en detalle e historial. Los listados de incidencias y espacios devolvieron listas vacías. |
 
-Queda por verificar el acceso de un vecino activo de la misma comunidad que no sea
-reportante ni verificador. Debe poder consultar sus espacios y recibir un 403
-al abrir el detalle o el historial de esa incidencia.
+La regla acordada el 5 de noviembre permite consultar una incidencia de otro
+vecino de la misma comunidad. Solo se requiere cuenta activa y pertenencia
+activa para estas consultas de vecinos y administradores. La edición aplica
+sus comprobaciones de autoría, rol y pertenencia por separado.
+
+Las pruebas de servicio de esta regla están en ConsultaComunidadTests.
+Simulan los repositorios para verificar los permisos sin credenciales MySQL:
+
+```powershell
+.\mvnw.cmd "-Dtest=ConsultaComunidadTests,EdicionIncidenciaTests,AltaAdministradorTests" test
+```
+
+Cubren lectura de detalle e historial de otro autor, listado por varias
+comunidades activas, ausencia de pertenencia activa, cuenta inactiva y rol técnico.
+Las pruebas incluyen ahora las consultas administrativas y el alta con
+verificador, además de la compatibilidad con el alta vecinal.
+Ejecución del 5 de noviembre de 2026: 29 pruebas superadas, 0 fallos y 0 errores
+(8 de consulta, 10 de edición y 11 de alta).
+La comprobación HTTP con dos vecinos de la misma comunidad y la validación de
+la consulta del repositorio contra MySQL quedan pendientes.
 
 ### Comprobaciones iniciales de octubre de 2026
 
