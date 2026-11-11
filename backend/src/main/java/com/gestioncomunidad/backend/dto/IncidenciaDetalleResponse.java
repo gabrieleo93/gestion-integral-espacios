@@ -22,6 +22,12 @@ public record IncidenciaDetalleResponse(
     Integer vecinoVerificadorId,
     String vecinoVerificadorNombre,
     Integer tecnicoAsignadoId,
-    String tecnicoAsignadoNombre
+    String tecnicoAsignadoNombre,
+    // Fechas del ciclo actual para mostrar confirmación y cierre en el detalle.
+    LocalDateTime fechaAsignacion,
+    LocalDateTime fechaInicio,
+    LocalDateTime fechaReparacion,
+    LocalDateTime fechaConfirmacion,
+    LocalDateTime fechaCierre
 ) {
 }

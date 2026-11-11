@@ -31,6 +31,10 @@ public interface IncidenciaRepository
 
     List<Incidencia> findByTecnicoAsignado_Id(Integer tecnicoId);
 
+    // La asignación por sí sola no conserva el acceso si se pierde la pertenencia activa.
+    List<Incidencia> findByTecnicoAsignado_IdAndEspacio_Comunidad_IdInOrderByFechaCreacionDescIdDesc(
+            Integer tecnicoId, Collection<Integer> comunidadesIds);
+
     List<Incidencia> findByEspacio_Comunidad_Id(Integer comunidadId);
 
     List<Incidencia> findByUsuarioReporta_IdOrVecinoVerificador_IdOrderByFechaCreacionDescIdDesc(

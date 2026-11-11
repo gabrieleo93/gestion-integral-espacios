@@ -9,6 +9,9 @@ import com.gestioncomunidad.backend.entity.EstadoUsuario;
 import com.gestioncomunidad.backend.entity.UsuarioComunidad;
 
 public interface UsuarioComunidadRepository extends JpaRepository<UsuarioComunidad, Integer> {
+    // Filtra cuenta, rol y pertenencia en SQL para ofrecer solo candidatos de la comunidad.
+    List<UsuarioComunidad> findByComunidad_IdAndEstadoAndUsuario_EstadoAndUsuario_Rol_NombreOrderByUsuario_NombreAscUsuario_IdAsc(
+        Integer comunidadId, EstadoUsuario pertenencia, EstadoUsuario cuenta, String rol);
      Optional<UsuarioComunidad> findByUsuarioIdAndComunidadId(Integer usuarioId, Integer comunidadId);
 
      List<UsuarioComunidad> findByUsuario_IdAndEstado(

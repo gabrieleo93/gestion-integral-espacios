@@ -242,7 +242,13 @@ public class IncidenciaService {
                                 tecnico != null ? tecnico.getId() : null,
                                 tecnico != null
                                                 ? tecnico.getNombre() + " " + tecnico.getApellidos()
-                                                : null);
+                                                : null,
+                                // Permite al frontend consultar el ciclo actual sin deducir fechas del historial.
+                                incidencia.getFechaAsignacion(),
+                                incidencia.getFechaInicio(),
+                                incidencia.getFechaReparacion(),
+                                incidencia.getFechaConfirmacion(),
+                                incidencia.getFechaCierre());
         }
 
         @Transactional(readOnly = true)
