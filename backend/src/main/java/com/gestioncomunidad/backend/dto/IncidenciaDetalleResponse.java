@@ -28,6 +28,8 @@ public record IncidenciaDetalleResponse(
     LocalDateTime fechaInicio,
     LocalDateTime fechaReparacion,
     LocalDateTime fechaConfirmacion,
-    LocalDateTime fechaCierre
+    LocalDateTime fechaCierre,
+    // Distingue rechazo simple de duplicada y permite navegar al aviso original autorizado.
+    Integer incidenciaOriginalId
 ) {
 }

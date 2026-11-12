@@ -248,7 +248,9 @@ public class IncidenciaService {
                                 incidencia.getFechaInicio(),
                                 incidencia.getFechaReparacion(),
                                 incidencia.getFechaConfirmacion(),
-                                incidencia.getFechaCierre());
+                                incidencia.getFechaCierre(),
+                                // La referencia solo se expone tras comprobar acceso al detalle por comunidad.
+                                incidencia.getIncidenciaOrigen() != null ? incidencia.getIncidenciaOrigen().getId() : null);
         }
 
         @Transactional(readOnly = true)

@@ -21,7 +21,8 @@ public class Evidencia {
     @Column(name = "tipo_mime", nullable = false, length = 100)
     private String tipoMime;
 
-    @Column(name = "descripcion", columnDefinition = "TEXT")
+    // Coincide con VARCHAR(255) del esquema existente para evitar desbordamientos en MySQL.
+    @Column(name = "descripcion", length = 255)
     private String descripcion;
 
     @Enumerated(EnumType.STRING)

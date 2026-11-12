@@ -14,6 +14,25 @@ import java.util.Map;
 @RestControllerAdvice
 public class GlobalExceptionHandler {
 
+    // Mantiene respuestas JSON también cuando el contenedor rechaza un multipart demasiado grande.
+    @ExceptionHandler(org.springframework.web.multipart.MaxUploadSizeExceededException.class)
+    public ResponseEntity<ErrorResponse> archivoGrande(Exception exception) {
+        return ResponseEntity.status(413).body(new ErrorResponse(413, "La imagen supera el límite de 5 MiB o la petición supera 6 MiB", Map.of()));
+    }
+
+    @ExceptionHandler({org.springframework.web.multipart.support.MissingServletRequestPartException.class,
+            org.springframework.web.bind.MissingServletRequestParameterException.class,
+            org.springframework.web.method.annotation.MethodArgumentTypeMismatchException.class})
+    public ResponseEntity<ErrorResponse> parametroInvalido(Exception exception) {
+        return ResponseEntity.badRequest().body(new ErrorResponse(400, "Faltan parámetros o tienen un formato inválido", Map.of()));
+    }
+
+    @ExceptionHandler(AlmacenamientoException.class)
+    public ResponseEntity<ErrorResponse> almacenamiento(AlmacenamientoException exception) {
+        org.slf4j.LoggerFactory.getLogger(GlobalExceptionHandler.class).error("Error de almacenamiento de evidencias", exception);
+        return ResponseEntity.internalServerError().body(new ErrorResponse(500, "No se pudo completar la operación con el archivo", Map.of()));
+    }
+
     // Mantiene el formato de error de la API para validaciones de negocio.
     @ExceptionHandler(DatosNoValidosException.class)
     public ResponseEntity<ErrorResponse> datosDeNegocioNoValidos(DatosNoValidosException exception) {

@@ -15,7 +15,7 @@ El proyecto se encuentra en desarrollo. La versión actual incluye:
 - Entidades JPA del núcleo: Rol, Usuario, Comunidad, UsuarioComunidad,
   Espacio, Incidencia, HistorialIncidencia y Evidencia.
 - Enumeraciones de estados, prioridades y tipos de evidencia.
-- Ocho repositorios JPA para acceder a los datos.
+- Repositorios JPA para incidencias, pertenencias, presupuestos, reuniones y costes.
 - DTO de entrada y salida, con validaciones para registrar incidencias.
 - Gestión de errores de validación, recursos inexistentes y operaciones
   no permitidas.
@@ -43,10 +43,7 @@ Este permiso de consulta no concede permisos de modificación.
 
 - Frontend y pantallas propias de la aplicación.
 - Registro y administración de usuarios.
-- Operaciones específicas de administradores y técnicos.
-- Rechazo de incidencias y vinculación de duplicadas.
-- Subida y consulta de archivos de evidencia.
-- Funcionalidades de presupuestos, votaciones y costes.
+- Integración de las operaciones implementadas con las pantallas del frontend.
 - Autenticación mediante JWT, prevista inicialmente.
 - Ampliación de pruebas de seguridad, API y consultas.
 
@@ -93,6 +90,8 @@ database/
   01_estructura_inicial.sql
   02_integridad_evidencias.sql
   03_estado_facturacion_costes.sql
+  04_historial_pertenencias.sql
+  05_reuniones_actas.sql
 
 README.md
 .gitignore
@@ -128,10 +127,16 @@ de la carpeta database en este orden:
 2. 01_estructura_inicial.sql
 3. 02_integridad_evidencias.sql
 4. 03_estado_facturacion_costes.sql
+5. 04_historial_pertenencias.sql
+6. 05_reuniones_actas.sql
 
-En una instalación ya preparada con los tres primeros scripts, ejecutar
-únicamente el cuarto. El modelo inicial se conserva como punto de partida
-y el cuarto script aplica la decisión de usar facturación en costes.
+En una instalación existente, ejecutar solo los scripts que falten, sin repetir
+los anteriores. El cuarto aplica la decisión de facturación en costes y el quinto
+añade el historial de solicitudes de pertenencia. La migración 04 depende de las
+tablas de la 01, no de la migración de costes; si la 03 necesita revisión de datos,
+puede aplicarse la 04 por separado. Usar una cuenta administradora de MySQL con
+permiso CREATE. La migración 05 crea reuniones y actas y depende de las tablas
+iniciales, no de la 03. El backend usa ddl-auto=validate y necesita todas estas tablas al arrancar.
 
 ### Estado de facturación de los costes
 
@@ -142,8 +147,9 @@ La columna final es `estado_facturacion`:
 | PENDIENTE_FACTURAR | Pendiente de facturar |
 | FACTURADO | Facturado |
 
-El valor inicial será PENDIENTE_FACTURAR. El módulo registrará si el coste
-ha sido facturado. Sus entidades Java y operaciones de API siguen pendientes.
+El valor inicial es PENDIENTE_FACTURAR. El módulo permite registrar costes reales,
+editar los pendientes y marcarlos como FACTURADO. No genera documentos de factura
+ni registra pagos; los presupuestos permanecen separados de los costes reales.
 
 La migración 03 solo convierte automáticamente una tabla de costes vacía.
 Si existen registros, se detiene antes del ALTER TABLE y conserva los datos:
@@ -413,6 +419,309 @@ la respuesta es una lista vacía.
 
 ## Pruebas automatizadas
 
+### Órdenes 11 y 12: reuniones, actas, costes y facturación
+
+El administrador con cuenta y pertenencia activas crea reuniones de su comunidad
+con título, descripción opcional, fecha futura y lugar. Publica un acta en texto
+una vez llegada la fecha de reunión. Solo existe un acta por reunión y no se
+edita ni sustituye después de publicarla. Se conservan autor y fecha.
+Vecinos y administradores activos de la comunidad pueden consultar; los técnicos
+y los usuarios ajenos no tienen acceso a estos módulos.
+
+| Método | Ruta | Operación |
+|---|---|---|
+| GET / POST | `/api/comunidades/{id}/reuniones` | Listar / crear reunión |
+| GET | `/api/reuniones/{id}` | Consultar reunión |
+| GET / POST | `/api/reuniones/{id}/acta` | Consultar / publicar acta |
+| GET / POST | `/api/incidencias/{id}/costes` | Listar / registrar costes reales |
+| GET | `/api/incidencias/{id}/costes/resumen` | Totales, pendientes y facturados |
+| PUT | `/api/costes/{id}` | Editar concepto e importe pendiente |
+| POST | `/api/costes/{id}/facturacion` | Marcar FACTURADO |
+
+Las escrituras requieren sesión administrativa y CSRF. Los costes admiten
+importes no negativos con hasta dos decimales. No se modifican costes de
+incidencias RECHAZADAS ni se editan costes FACTURADOS. Repetir la marca de
+facturación no duplica el historial. Cada alta, edición efectiva y facturación
+registra un evento con actor en el historial de la incidencia, en la misma
+transacción: si falla el historial, también se revierte el cambio económico.
+Los importes se suman con BigDecimal para conservar la precisión decimal.
+
+Los bloqueos y restricciones impiden publicar actas duplicadas o duplicar el
+evento de facturación ante peticiones simultáneas. Los siete nuevos recorridos
+de OrdenesHttpMysqlTests comprueban permisos, CSRF, validaciones, consulta,
+inmutabilidad, totales, concurrencia y reversión de costes ante fallo del historial.
+Las pruebas crean datos propios en MySQL de desarrollo y los eliminan al terminar.
+
+Validación del 12 de noviembre de 2026, después de aplicar las migraciones 03 y 05:
+76 pruebas superadas, 0 fallos, 0 errores y 0 omitidas. Incluye 44 recorridos
+HTTP/MySQL (7 nuevos de estos bloques), 29 pruebas de permisos y 3 del servicio
+de alta. El arranque con validación del esquema y las operaciones reales sobre
+reuniones, actas y costes verifican que las migraciones están aplicadas.
+
+Este alcance no incluye borradores de actas, archivos PDF, avisos de reuniones,
+emisión fiscal de facturas ni cobros.
+
+### Orden 10: presupuestos y votación
+
+El técnico asignado crea el presupuesto porque estima la reparación. El
+administrador de la comunidad consulta esa propuesta y abre la votación.
+Ambos requieren cuenta y pertenencia activas; la incidencia debe estar ASIGNADA
+o EN_PROCESO al crear el presupuesto y al abrir su votación. No se añade un canal
+externo de envío: el administrador recibe las propuestas mediante el listado API.
+
+| Método y ruta | Uso y respuesta |
+|---|---|
+| POST /api/incidencias/{id}/presupuestos | Técnico asignado: crea propuesta PENDIENTE; 201. |
+| GET /api/incidencias/{id}/presupuestos | Listado para vecinos/administradores activos de la comunidad y técnico asignado. |
+| POST /api/presupuestos/{id}/votacion | Administrador: abre una votación inmediatamente y pasa presupuesto a EN_VOTACION; 201. |
+| GET /api/presupuestos/{id}/votacion | Estado, plazo, totales y voto propio; 404 si todavía no hay votación. |
+| POST /api/votaciones/{id}/votos | Vecino activo de la comunidad: emite un único voto; 204. |
+| POST /api/votaciones/{id}/cierre | Administrador: cierra tras el plazo y devuelve el resultado; 200. |
+
+Creación por el técnico:
+
+```json
+{
+  "titulo": "Sustitución del interruptor",
+  "descripcion": "Material y mano de obra incluidos.",
+  "proveedor": "Servicio técnico",
+  "importe": 123.45
+}
+```
+
+Título y proveedor son obligatorios, hasta 150 caracteres; descripción opcional
+hasta 5000. Importe no negativo, hasta 8 dígitos enteros y 2 decimales, almacenado
+con BigDecimal/DECIMAL(10,2). La propuesta no admite cambios mediante esta API;
+el técnico puede crear otra propuesta. Cada presupuesto tiene su propia votación
+y resultado independiente; no se elige automáticamente un único proveedor ganador.
+
+Apertura por el administrador (usar fecha futura):
+
+```json
+{"fechaFin":"2026-12-15T18:00:00"}
+```
+
+El servidor fija fechaInicio y exige fechaFin posterior. Fechas locales del servidor,
+con precisión de segundos. Se acepta voto en [fechaInicio, fechaFin): al vencer el
+plazo se rechazan votos aunque el estado siga ABIERTA hasta el cierre administrativo.
+La respuesta `admiteVotos` incorpora plazo, rol y si el usuario ya votó.
+
+Voto del vecino:
+
+```json
+{"opcion":"ABSTENCION"}
+```
+
+Opciones: A_FAVOR, EN_CONTRA y ABSTENCION. Solo votan cuentas USUARIO con pertenencia
+activa; administrador y técnico no votan con sus roles. No se modifica ni se repite
+un voto emitido. Los votos válidos conservan su efecto aunque después se desactive
+una pertenencia; se valida la elegibilidad al emitirlos. Los resultados son agregados
+y cada usuario solo recibe su voto propio, no la identidad/opción de los demás.
+
+Tras el plazo, el administrador cierra: APROBADO si A_FAVOR > EN_CONTRA; RECHAZADO
+en empate, ausencia de votos o mayoría en contra. Sin quórum mínimo. Las abstenciones
+cuentan en participación pero no a favor ni en contra. Se guarda la votación CERRADA
+y el resultado del presupuesto en la misma transacción.
+
+El historial de la incidencia registra PRESUPUESTO_CREADO con el técnico actor,
+VOTACION_ABIERTA y VOTACION_CERRADA con el administrador y el resultado agregado.
+No se publica cada voto en ese historial. No cambia el estado de la incidencia
+ni se genera un coste/factura automáticamente; el módulo de costes es el orden 12.
+La aprobación presupuestaria no añade un bloqueo nuevo al flujo técnico existente.
+
+Sesión y CSRF son obligatorios en escrituras. Datos inválidos: 400; permisos, estados,
+voto repetido o fuera de plazo: 403; recurso inexistente: 404. Se bloquea primero la
+incidencia y después el presupuesto/votación para serializar operaciones; las lecturas
+de votos al emitir/cerrar usan bloqueo y MySQL mantiene la unicidad usuario-votación.
+
+Se utilizan las tablas existentes presupuestos, votaciones y votos, sin migración SQL.
+PROGRAMADA y CANCELADA existen en el esquema, pero la apertura de este bloque es
+inmediata y no incorpora programación futura, cancelación, edición ni reapertura de
+votaciones. El cierre es una acción administrativa, no una tarea automática.
+
+Las pruebas HTTP/MySQL verifican creación por técnico (y rechazo del administrador),
+permisos, precisión del importe, plazos, voto único, abstención, resultados, concurrencia
+y reversión ante fallos. El paso del tiempo se simula ajustando las fechas de las
+votaciones propias de prueba; no se modifican votaciones de usuarios existentes.
+
+Validación del 12 de noviembre de 2026: 69 pruebas superadas en ejecución conjunta,
+sin fallos, errores ni omisiones: 29 con repositorios simulados, 3 de integración
+de alta y 37 recorridos HTTP/MySQL, incluidos 6 nuevos del orden 10. Las pruebas
+comprueban expresamente que el administrador no puede crear el presupuesto y
+que solo el técnico asignado puede hacerlo.
+
+### Orden 9: solicitud y validación de pertenencias
+
+Alcance: cuentas ya registradas y activas con rol USUARIO solicitan pertenencia
+a comunidades existentes. No incluye registro público, recuperación de contraseña
+ni concesión de roles ADMINISTRADOR o TECNICO. Cuenta y pertenencia son estados
+distintos: aprobar una pertenencia no modifica la cuenta ni su rol.
+
+| Método y ruta | Uso |
+|---|---|
+| GET /api/pertenencias/comunidades | Catálogo mínimo para vecinos autenticados: ID, nombre y ciudad, sin contenido privado de las comunidades. |
+| POST /api/pertenencias/solicitudes | Solicitar pertenencia propia; 200 con datos de la pertenencia. |
+| GET /api/pertenencias/mias | Pertenencias propias y estado actual, incluidas pendientes e inactivas. |
+| GET /api/pertenencias/pendientes | Solicitudes de vecinos en comunidades donde el administrador tiene pertenencia activa. |
+| POST /api/pertenencias/{id}/resolucion | Aprobar o rechazar; 204. El ID corresponde a la pertenencia, no al usuario. |
+| GET /api/pertenencias/{id}/historial | Eventos de solicitud y decisión, para el propio vecino o administrador autorizado. |
+
+Solicitud:
+
+```json
+{"comunidadId":10,"motivo":"Soy residente de esta comunidad."}
+```
+
+Aprobación y rechazo:
+
+```json
+{"aprobar":true}
+```
+
+```json
+{"aprobar":false,"motivo":"No se ha podido acreditar la residencia."}
+```
+
+Los motivos admiten hasta 1000 caracteres. Solicitud y rechazo requieren motivo;
+la aprobación admite comentario opcional. Todas las rutas requieren sesión y cuenta
+activa; las escrituras además requieren CSRF. El cliente no elige usuario, rol ni estado.
+
+Una nueva pertenencia nace PENDIENTE sin acceso a espacios, incidencias ni evidencias.
+Una solicitud repetida mientras siga pendiente devuelve la misma pertenencia sin
+duplicar eventos ni modificar el motivo original. Solicitar siendo ya miembro ACTIVO
+produce 403. Una pertenencia INACTIVO puede solicitarse de nuevo: vuelve a PENDIENTE,
+sin acceso hasta nueva aprobación y conservando sus decisiones anteriores.
+
+Solo un administrador activo de esa comunidad resuelve solicitudes de vecinos:
+PENDIENTE -> ACTIVO al aprobar, o -> INACTIVO al rechazar. No puede aprobar cuentas
+inactivas, resolverse una solicitud propia ni conceder roles mediante estas rutas.
+Una decisión repetida produce 403. Datos inválidos producen 400; recursos ausentes,
+404; permisos insuficientes, 403. Se serializan solicitud y decisión bloqueando primero
+la cuenta solicitante y después la pertenencia, junto con la restricción única existente.
+
+La migración `04_historial_pertenencias.sql` añade eventos SOLICITUD, APROBACION y
+RECHAZO con actor, motivo, fecha y estados anterior/nuevo. Historial y permiso se
+guardan en una transacción: si falla el historial, se revierte el cambio de acceso.
+Las pertenencias pendientes anteriores a la migración pueden resolverse; no se
+reconstruyen eventos históricos inexistentes. `fechaRegistro` es la creación inicial
+de la pertenencia; las solicitudes posteriores tienen fecha propia en el historial.
+
+Las pruebas añadidas cubren acceso antes/después de aprobar, rechazo y nueva solicitud,
+permisos, CSRF, cuenta inactiva, concurrencia y reversión ante fallo. Para ejecutarlas
+debe estar aplicada la migración 04 en la base de desarrollo.
+
+Validación del 12 de noviembre de 2026: migración 04 aplicada en la instalación
+local mediante la cuenta administradora. El backend validó el esquema y la ejecución
+conjunta superó 63 pruebas, sin fallos, errores ni omisiones: 29 con repositorios
+simulados, 3 de integración del alta y 31 recorridos HTTP/MySQL, incluidos los
+5 nuevos del orden 9. Se verificaron acceso antes/después de aprobar, rechazo y
+nueva solicitud con historial, permisos y CSRF, concurrencia sin duplicados y
+reversión de solicitud/aprobación ante fallo del historial. Los datos de prueba
+se limpiaron al terminar. El orden 9 queda validado para cuentas ya registradas;
+el registro público de cuentas sigue fuera de su alcance.
+
+### Orden 8: fotografías y evidencias
+
+| Método y ruta | Uso |
+|---|---|
+| POST /api/incidencias/{id}/evidencias | Subir una imagen mediante multipart/form-data; devuelve 201 con metadatos y URL autenticada. |
+| GET /api/incidencias/{id}/evidencias | Listar metadatos por fecha e ID ascendentes. |
+| GET /api/incidencias/{id}/evidencias/{evidenciaId}/archivo | Obtener los bytes de la imagen tras comprobar acceso. |
+
+La subida requiere cookie de sesión y cabecera CSRF vigente. En el cuerpo
+multipart enviar `archivo` (fichero), `tipo` (ANTES, DURANTE o DESPUES) y
+`descripcion` opcional (hasta 255 caracteres). El navegador debe generar el
+Content-Type multipart con su boundary; no establecerlo manualmente al usar FormData.
+
+Permisos acordados:
+
+- ANTES: creador o administrador de la comunidad, solo en PENDIENTE.
+- DURANTE y DESPUES: técnico asignado, solo en EN_PROCESO, antes de finalizar.
+- Consulta y descarga: vecinos y administradores de la comunidad; técnicos solo
+  de sus trabajos asignados. Cuenta y pertenencia deben estar activas en cada petición.
+- Las fotos siguen siendo opcionales para finalizar. No se añaden operaciones de
+  eliminación ni sustitución: una subida válida crea otra evidencia y otro evento.
+
+Se admiten JPEG y PNG de hasta 5 MiB (5.242.880 bytes), con un máximo de 20 millones
+de píxeles. La petición completa admite hasta 6 MiB. Se valida el contenido mediante
+decodificación y no se confía en el nombre ni en el MIME enviado por el cliente.
+Un contenido inválido produce 400; exceso del límite multipart, 413; acceso no
+permitido, 403; recurso inexistente, 404. Fallos de almacenamiento producen 500
+sin exponer rutas del servidor. Sin sesión se mantiene la redirección al login.
+
+Almacenamiento local privado por defecto: `./datos/evidencias`, relativo al directorio
+desde el que se inicia el backend. Puede configurarse con `app.evidencias.directorio`
+en application-local.properties o con la variable `APP_EVIDENCIAS_DIRECTORIO`.
+Usar una ruta persistente y la misma configuración en cada arranque. No se sirve
+como carpeta estática: todas las descargas pasan por autorización y llevan no-store
+y nosniff. Los archivos reciben claves UUID; el nombre original solo es metadato.
+La carpeta predeterminada queda excluida de Git. Respaldar esta carpeta junto con MySQL.
+
+Cada subida crea un evento EVIDENCIA_ADJUNTADA y la evidencia asociada al mismo
+aviso e historial. La columna url_archivo contiene la clave privada del archivo;
+la API devuelve una URL protegida. Estado y fechas del trabajo no se alteran.
+El mapeo de descripción se ajustó a VARCHAR(255), coincidiendo con el SQL existente.
+No se necesita migración adicional; debe estar aplicada la migración 02 de integridad.
+
+Si SQL revierte la transacción se elimina el archivo nuevo como compensación.
+Esto no es una transacción distribuida: una caída abrupta del proceso entre escritura
+y commit puede dejar un archivo huérfano. La limpieza automática ante caídas y el
+almacenamiento compartido entre varios servidores quedan fuera de esta implementación local.
+
+Las pruebas usan una carpeta temporal exclusiva y datos MySQL propios; verifican
+subida y descarga byte a byte, permisos, fases, contenido real, límites, CSRF y
+limpieza del archivo cuando falla el historial. Las pruebas previas también se ejecutan.
+
+Validación del 12 de noviembre de 2026: 58 pruebas superadas en ejecución conjunta,
+sin fallos ni errores (29 con repositorios simulados, 3 de integración de alta y
+26 recorridos HTTP/MySQL, incluidos los 4 nuevos del orden 8).
+
+### Orden 7: rechazo y duplicadas
+
+Solo un administrador con cuenta y pertenencia activas a la comunidad puede
+rechazar o marcar duplicada una incidencia PENDIENTE. Las operaciones requieren
+sesión, CSRF y motivo obligatorio (hasta 5000 caracteres, sin espacios exteriores).
+
+| Método y ruta | Cuerpo | Resultado |
+|---|---|---|
+| POST /api/incidencias/{id}/rechazo | `{"motivo":"El aviso no corresponde."}` | 204; estado RECHAZADA y evento RECHAZO. |
+| POST /api/incidencias/{id}/duplicada | `{"incidenciaOriginalId":15,"motivo":"El mismo problema ya está registrado."}` | 204; estado RECHAZADA, vínculo a la original y evento DUPLICADA. |
+
+El ID del ejemplo debe sustituirse por una incidencia real. No se añade un
+estado DUPLICADA: el detalle incluye `incidenciaOriginalId`, nulo para rechazo
+simple y con el identificador de la original para una duplicada. El frontend
+puede mostrar «Duplicada» y enlazar al detalle original usando ese dato.
+Se conservan el aviso y su historial; la operación no modifica la original.
+La fecha del rechazo se consulta en el evento, sin utilizar fechaCierre, reservada
+para el cierre administrativo tras confirmación.
+
+La original debe ser de la misma comunidad, distinta del aviso, no estar
+RECHAZADA ni ser ya duplicada. Puede estar en cualquiera de los demás estados,
+incluida FINALIZADA. No se permiten cadenas ni ciclos. Una incidencia que ya
+es original de otros duplicados no puede rechazarse ni convertirse en duplicada,
+para conservar una referencia válida de seguimiento. La reapertura del orden 6
+sigue limitada a FINALIZADA; no reabre rechazos ni duplicadas.
+
+Errores: 400 para motivo/identificador inválidos, autorreferencia, comunidad
+distinta, original rechazada/duplicada o referencia incompatible; 403 para cuenta,
+rol, pertenencia o estado del aviso no permitidos; 404 si un ID no existe.
+Repetir una operación completada produce 403 sin añadir otro evento.
+
+El servicio bloquea las dos incidencias en orden de ID al vincularlas, y comprueba
+las referencias mediante lectura con bloqueo. La transacción agrupa estado,
+vínculo e historial. Se reutiliza id_incidencia_origen y su clave foránea: no hay
+migración SQL. Los tests limpian primero los vínculos de sus propios datos para
+respetar esa clave foránea al eliminarlos.
+
+Las pruebas HTTP/MySQL cubren rechazo simple y duplicada, detalle e historial,
+permisos, CSRF, estados, motivos, autorreferencia, original inexistente, cadenas,
+comunidad ajena, reversión ante fallo y duplicadas cruzadas concurrentes.
+
+Validación del 12 de noviembre de 2026: 54 pruebas superadas en ejecución conjunta,
+sin fallos ni errores (29 con repositorios simulados, 3 de integración del alta y
+22 recorridos HTTP/MySQL, incluidos 5 nuevos del orden 7). Las peticiones cruzadas
+obtuvieron 204 y 400, con un único vínculo y sin ciclo.
+
 ### Orden 6: confirmación, cierre y reapertura
 
 Todas las acciones requieren cuenta activa, pertenencia activa a la comunidad,
@@ -509,7 +818,7 @@ Todas las escrituras requieren CSRF. Datos inválidos producen 400; rol,
 asignación, pertenencia o estado no permitidos producen 403; ID inexistente, 404.
 El técnico no confirma ni cierra: fecha_confirmacion y fecha_cierre permanecen
 sin alterar durante su actuación. Esas operaciones están implementadas en el orden 6. Las evidencias continúan
-pendientes del orden 8; no se exige todavía adjuntar fotos para finalizar.
+implementadas en el orden 8; no se exige adjuntar fotos para finalizar.
 
 Se reutilizan las columnas de fechas e historial existentes, sin migración SQL.
 Las pruebas HTTP/MySQL incluyen recorrido completo, permisos, CSRF, validación,
@@ -729,9 +1038,8 @@ Para ejecutar todas las pruebas del proyecto:
 .\mvnw.cmd test
 ```
 
-El resultado confirmado corresponde a las tres pruebas de
-IncidenciaServiceTests. La ejecución completa de la suite debe
-comprobarse por separado.
+La ejecución conjunta confirmada de las cinco clases funcionales suma 76 pruebas
+(véase la validación de los órdenes 11 y 12). No incluye BackendApplicationTests.
 
 ## Validación realizada
 

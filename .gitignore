@@ -1,6 +1,9 @@
 # Archivos generados al compilar
 **/target/
 
+# Fotografías subidas: datos privados persistentes, no código fuente.
+**/datos/evidencias/
+
 # Dependencias y compilación del frontend
 **/node_modules/
 **/dist/

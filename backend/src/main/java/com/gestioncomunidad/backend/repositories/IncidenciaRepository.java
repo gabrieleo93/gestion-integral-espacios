@@ -20,6 +20,10 @@ public interface IncidenciaRepository
     @Query("select i from Incidencia i where i.id = :id")
     Optional<Incidencia> findByIdParaActualizar(@Param("id") Integer id);
 
+    // Lectura con bloqueo: comprueba referencias actuales, incluso tras esperar otra transacción.
+    @Lock(LockModeType.PESSIMISTIC_WRITE)
+    List<Incidencia> findByIncidenciaOrigen_Id(Integer incidenciaId);
+
     // Filtramos por comunidades en SQL para incluir avisos de otros vecinos
     // sin cargar incidencias ajenas. Conservamos el orden reciente y el desempate por ID.
     List<Incidencia> findByEspacio_Comunidad_IdInOrderByFechaCreacionDescIdDesc(
